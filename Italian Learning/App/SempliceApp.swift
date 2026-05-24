@@ -3,6 +3,9 @@ import SwiftData
 
 @main
 struct SempliceApp: App {
+    // Inicjalizujemy globalnego managera głosu
+    @State private var speechManager = SpeechManager()
+    
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
             Flashcard.self,
@@ -20,6 +23,8 @@ struct SempliceApp: App {
     var body: some Scene {
         WindowGroup {
             MainTabView()
+                // Udostępniamy manager mowy dla całego drzewa widoków
+                .environment(speechManager)
         }
         .modelContainer(sharedModelContainer)
     }

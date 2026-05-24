@@ -54,11 +54,27 @@ struct TypingStudySessionView: View {
                         }
 
                         HStack(spacing: 12) {
-                            Button("Pomiń") { submit(answerIsCorrect: false) }
-                                .buttonStyle(.bordered)
-                            Button("Sprawdź") { checkAnswer() }
-                                .buttonStyle(.borderedProminent)
-                                .tint(.primary)
+                            Button(action: { submit(answerIsCorrect: false) }) {
+                                Text("Pomiń")
+                                    .fontWeight(.medium)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                    .background(Color.secondary.opacity(0.15))
+                                    .foregroundColor(.primary)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                            }
+                            .buttonStyle(.plain)
+                            
+                            Button(action: { checkAnswer() }) {
+                                Text("Sprawdź")
+                                    .fontWeight(.bold)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                    .background(Color.primary)
+                                    .foregroundColor(.white)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                     .padding(.horizontal, 24)
@@ -72,9 +88,17 @@ struct TypingStudySessionView: View {
                         Text("Koniec na dzisiaj!")
                             .font(.title)
                             .bold()
-                        Button("Zakończ") { dismiss() }
-                            .buttonStyle(.borderedProminent)
-                            .tint(.primary)
+                        
+                        Button(action: { dismiss() }) {
+                            Text("Zakończ")
+                                .font(.headline)
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 32)
+                                .padding(.vertical, 14)
+                                .background(Color.primary)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        .buttonStyle(.plain)
                     }
                     Spacer()
                 }
@@ -90,6 +114,7 @@ struct TypingStudySessionView: View {
                             .foregroundColor(.secondary)
                             .font(.title3)
                     }
+                    .buttonStyle(.plain)
                 }
                 ToolbarItem(placement: .principal) {
                     Text("\(currentIndex) / \(cards.count)")
@@ -117,17 +142,20 @@ struct TypingStudySessionView: View {
         let quality: ReviewQuality = answerIsCorrect ? .good : .again
         SRSAlgorithm.processReview(for: card, quality: quality)
 
-        // Zoptymalizowane użycie statycznego formatera daty
-        let todayStr = DateFormatter.yyyyMMdd.string(from: Date())
-        let descriptor = FetchDescriptor<DailyActivity>()
-        if let activities = try? modelContext.fetch(descriptor) {
-            if let todayActivity = activities.first(where: { $0.dateString == todayStr }) {
-                todayActivity.count += 1
-            } else {
-                let newActivity = DailyActivity(dateString: todayStr, count: 1)
-                modelContext.insert(newActivity)
+        // Zaliczenie do statystyk TYLKO przy stuprocentowo poprawnej odpowiedzi
+        if answerIsCorrect {
+            let todayStr = DateFormatter.yyyyMMdd.string(from: Date())
+            let descriptor = FetchDescriptor<DailyActivity>()
+            if let activities = try? modelContext.fetch(descriptor) {
+                if let todayActivity = activities.first(where: { $0.dateString == todayStr }) {
+                    todayActivity.count += 1
+                } else {
+                    let newActivity = DailyActivity(dateString: todayStr, count: 1)
+                    modelContext.insert(newActivity)
+                }
             }
         }
+        
         try? modelContext.save()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {

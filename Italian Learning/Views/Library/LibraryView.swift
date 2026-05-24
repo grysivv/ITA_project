@@ -17,24 +17,36 @@ struct LibraryView: View {
     var body: some View {
         NavigationStack {
             List {
-                ForEach(filteredCards) { card in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(card.front)
-                            .font(.headline)
-                        Text(card.back)
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.vertical, 4)
-                    .swipeActions(edge: .trailing) {
-                        Button("Edytuj") {
+                Section(footer: Text("Liczba wyników: \(filteredCards.count)")) {
+                    ForEach(filteredCards) { card in
+                        Button(action: {
                             editingCard = card
+                        }) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(card.front)
+                                    .font(.headline)
+                                    .foregroundColor(.primary)
+                                
+                                Text(card.back)
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.vertical, 4)
                         }
-                        .tint(.blue)
+                        .buttonStyle(.plain) // Naprawia zachowanie kliknięć i podświetlania na macOS
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button("Edytuj") {
+                                editingCard = card
+                            }
+                            .tint(.blue)
+                        }
                     }
+                    .onDelete(perform: deleteCards)
                 }
-                .onDelete(perform: deleteCards)
             }
+#if os(iOS)
+            .listStyle(.insetGrouped)
+#endif
             .navigationTitle("Twoje Fiszki")
             .searchable(text: $searchText, prompt: "Szukaj słówka...")
             .toolbar {
@@ -59,6 +71,7 @@ struct LibraryView: View {
             for index in offsets {
                 modelContext.delete(filteredCards[index])
             }
+            try? modelContext.save()
         }
     }
 }
@@ -71,12 +84,17 @@ struct AddFlashcardView: View {
     @State private var back = ""
     @State private var example = ""
     
+    // Automatyczne aktywowanie klawiatury
+    @FocusState private var isFrontFocused: Bool
+    
     var body: some View {
         NavigationStack {
             Form {
                 Section(header: Text("Główne")) {
                     TextField("Włoski (np. la mela)", text: $front)
                         .font(.title3)
+                        .focused($isFrontFocused)
+                    
                     TextField("Tłumaczenie (np. jabłko)", text: $back)
                 }
                 
@@ -100,12 +118,16 @@ struct AddFlashcardView: View {
                     .disabled(front.trimmingCharacters(in: .whitespaces).isEmpty || back.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
+            .onAppear {
+                isFrontFocused = true // Od razu po otwarciu wysuwa klawiaturę
+            }
         }
     }
     
     private func saveCard() {
         let newCard = Flashcard(front: front, back: back, example: example.isEmpty ? nil : example)
         modelContext.insert(newCard)
+        try? modelContext.save()
         dismiss()
     }
 }

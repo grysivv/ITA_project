@@ -59,11 +59,16 @@ struct StudySessionView: View {
                         Text("Koniec na dzisiaj!")
                             .font(.title)
                             .bold()
-                        Button("Zakończ") {
-                            dismiss()
+                        Button(action: { dismiss() }) {
+                            Text("Zakończ")
+                                .font(.headline)
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 32)
+                                .padding(.vertical, 14)
+                                .background(Color.primary)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
                         }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.primary)
+                        .buttonStyle(.plain)
                     }
                     Spacer()
                 }
@@ -79,6 +84,7 @@ struct StudySessionView: View {
                             .foregroundColor(.secondary)
                             .font(.title3)
                     }
+                    .buttonStyle(.plain)
                 }
                 ToolbarItem(placement: .principal) {
                     Text("\(currentIndex) / \(cards.count)")
@@ -94,16 +100,17 @@ struct StudySessionView: View {
         let card = cards[currentIndex]
         SRSAlgorithm.processReview(for: card, quality: quality)
         
-        // Zoptymalizowane użycie statycznego formatera daty
-        let todayStr = DateFormatter.yyyyMMdd.string(from: Date())
-        
-        let descriptor = FetchDescriptor<DailyActivity>()
-        if let activities = try? modelContext.fetch(descriptor) {
-            if let todayActivity = activities.first(where: { $0.dateString == todayStr }) {
-                todayActivity.count += 1
-            } else {
-                let newActivity = DailyActivity(dateString: todayStr, count: 1)
-                modelContext.insert(newActivity)
+        // Zaliczenie do statystyk TYLKO jeśli odpowiedź nie była "Nie umiem"
+        if quality != .again {
+            let todayStr = DateFormatter.yyyyMMdd.string(from: Date())
+            let descriptor = FetchDescriptor<DailyActivity>()
+            if let activities = try? modelContext.fetch(descriptor) {
+                if let todayActivity = activities.first(where: { $0.dateString == todayStr }) {
+                    todayActivity.count += 1
+                } else {
+                    let newActivity = DailyActivity(dateString: todayStr, count: 1)
+                    modelContext.insert(newActivity)
+                }
             }
         }
         

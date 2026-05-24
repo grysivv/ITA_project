@@ -4,17 +4,16 @@ import SwiftData
 struct DashboardView: View {
     @Environment(\.modelContext) private var modelContext
     
-    // Optymalizacja #1: Zapytanie filtrujące tylko to, co potrzebne na dzisiaj.
     @Query private var dueCards: [Flashcard]
     @AppStorage("dailyGoal") private var dailyGoal: Int = 15
     
-    // Optymalizacja #2: Stan wyliczany raz, aby nie obciążać odświeżania widoku
     @State private var poznaneCount: Int = 0
     @State private var todayCount: Int = 0
     @State private var seriaCount: Int = 0
     
     @State private var isStudying = false
     @State private var isTypingMode = false
+    @State private var isFreePractice = false // Flaga wolnego treningu
 
     init() {
         let now = Date()
@@ -41,7 +40,7 @@ struct DashboardView: View {
                     .padding(.top)
 
                     // Hero Card (Powtórki)
-                    VStack(spacing: 20) {
+                    VStack(spacing: 16) {
                         HStack {
                             VStack(alignment: .leading) {
                                 Text("Do powtórki")
@@ -67,16 +66,28 @@ struct DashboardView: View {
                         }
                         .disabled(dueCards.isEmpty)
                         
-                        Button(action: { isTypingMode = true }) {
-                            Text("Tryb wpisywania")
-                                .font(.headline)
-                                .foregroundColor(.primary)
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(Color.orange.opacity(0.15))
-                                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        HStack(spacing: 12) {
+                            Button(action: { isTypingMode = true }) {
+                                Text("Wpisywanie")
+                                    .font(.subheadline).bold()
+                                    .foregroundColor(.primary)
+                                    .frame(maxWidth: .infinity)
+                                    .padding()
+                                    .background(Color.orange.opacity(0.15))
+                                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            }
+                            .disabled(dueCards.isEmpty)
+                            
+                            Button(action: { isFreePractice = true }) {
+                                Text("Wolny Trening")
+                                    .font(.subheadline).bold()
+                                    .foregroundColor(.blue)
+                                    .frame(maxWidth: .infinity)
+                                    .padding()
+                                    .background(Color.blue.opacity(0.15))
+                                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            }
                         }
-                        .disabled(dueCards.isEmpty)
                     }
                     .padding(24)
                     .background(Color.secondary.opacity(0.1))
@@ -131,13 +142,15 @@ struct DashboardView: View {
                     .frame(minWidth: 400, minHeight: 500)
             }
 #endif
+            .sheet(isPresented: $isFreePractice) {
+                FreePracticeConfigView()
+            }
         }
     }
     
     private func calculateStats() {
         let todayStr = DateFormatter.yyyyMMdd.string(from: Date())
         
-        // Optymalizacja: POBRANIE SAMEJ LICZBY (zamiast ściągania całej bazy do pamięci)
         let poznaneDescriptor = FetchDescriptor<Flashcard>(predicate: #Predicate { $0.repetitions > 0 })
         poznaneCount = (try? modelContext.fetchCount(poznaneDescriptor)) ?? 0
         
