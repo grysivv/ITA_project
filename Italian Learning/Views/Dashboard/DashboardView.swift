@@ -4,25 +4,23 @@ import SwiftData
 struct DashboardView: View {
     @Environment(\.modelContext) private var modelContext
     
-    // Optymalizacja #1: Zapytanie filtrujące tylko to, co potrzebne na dzisiaj.
-    @Query private var dueCards: [Flashcard]
+    @Query private var allCards: [Flashcard]
+    
+    var dueCards: [Flashcard] {
+        let now = Date()
+        return allCards.filter { $0.nextReviewDate <= now }.sorted { $0.nextReviewDate < $1.nextReviewDate }
+    }
+    
     @AppStorage("dailyGoal") private var dailyGoal: Int = 15
     
-    // Optymalizacja #2: Stan wyliczany raz, aby nie obciążać odświeżania widoku
     @State private var poznaneCount: Int = 0
     @State private var todayCount: Int = 0
     @State private var seriaCount: Int = 0
+    @State private var todayStudyTime: Double = 0.0 // Czas nauki dzisiaj
     
     @State private var isStudying = false
     @State private var isTypingMode = false
-
-    init() {
-        let now = Date()
-        let predicate = #Predicate<Flashcard> { card in
-            card.nextReviewDate <= now
-        }
-        _dueCards = Query(filter: predicate, sort: \.nextReviewDate)
-    }
+    @State private var isFreePractice = false
 
     var body: some View {
         NavigationStack {
@@ -41,7 +39,7 @@ struct DashboardView: View {
                     .padding(.top)
 
                     // Hero Card (Powtórki)
-                    VStack(spacing: 20) {
+                    VStack(spacing: 16) {
                         HStack {
                             VStack(alignment: .leading) {
                                 Text("Do powtórki")
@@ -66,25 +64,41 @@ struct DashboardView: View {
                                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                         }
                         .disabled(dueCards.isEmpty)
+                        .buttonStyle(.borderless)
                         
-                        Button(action: { isTypingMode = true }) {
-                            Text("Tryb wpisywania")
-                                .font(.headline)
-                                .foregroundColor(.primary)
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(Color.orange.opacity(0.15))
-                                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        HStack(spacing: 12) {
+                            Button(action: { isTypingMode = true }) {
+                                Text("Wpisywanie")
+                                    .font(.subheadline).bold()
+                                    .foregroundColor(.primary)
+                                    .frame(maxWidth: .infinity)
+                                    .padding()
+                                    .background(Color.orange.opacity(0.15))
+                                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            }
+                            .disabled(dueCards.isEmpty)
+                            .buttonStyle(.borderless)
+                            
+                            Button(action: { isFreePractice = true }) {
+                                Text("Wolny Trening")
+                                    .font(.subheadline).bold()
+                                    .foregroundColor(.blue)
+                                    .frame(maxWidth: .infinity)
+                                    .padding()
+                                    .background(Color.blue.opacity(0.15))
+                                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            }
+                            .buttonStyle(.borderless)
                         }
-                        .disabled(dueCards.isEmpty)
                     }
                     .padding(24)
                     .background(Color.secondary.opacity(0.1))
                     .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                     
                     // Szybkie statystyki
-                    HStack(spacing: 16) {
+                    HStack(spacing: 12) {
                         StatCard(title: "Seria", value: "\(seriaCount) dni", icon: "flame.fill", color: .orange)
+                        StatCard(title: "Czas", value: formatTime(todayStudyTime), icon: "clock.fill", color: .blue)
                         StatCard(title: "Poznane", value: "\(poznaneCount)", icon: "checkmark.seal.fill", color: .green)
                     }
                     
@@ -116,41 +130,48 @@ struct DashboardView: View {
             .onChange(of: dailyGoal) { _, _ in calculateStats() }
 #if os(iOS)
             .fullScreenCover(isPresented: $isStudying, onDismiss: { calculateStats() }) {
-                StudySessionView(cards: Array(dueCards))
+                StudySessionView(cards: dueCards, isFreePractice: false)
             }
             .fullScreenCover(isPresented: $isTypingMode, onDismiss: { calculateStats() }) {
-                TypingStudySessionView(cards: Array(dueCards))
+                TypingStudySessionView(cards: dueCards, isFreePractice: false)
             }
 #else
             .sheet(isPresented: $isStudying, onDismiss: { calculateStats() }) {
-                StudySessionView(cards: Array(dueCards))
+                StudySessionView(cards: dueCards, isFreePractice: false)
                     .frame(minWidth: 400, minHeight: 500)
             }
             .sheet(isPresented: $isTypingMode, onDismiss: { calculateStats() }) {
-                TypingStudySessionView(cards: Array(dueCards))
+                TypingStudySessionView(cards: dueCards, isFreePractice: false)
                     .frame(minWidth: 400, minHeight: 500)
             }
 #endif
+            .sheet(isPresented: $isFreePractice) {
+                FreePracticeConfigView()
+            }
         }
+    }
+    
+    private func formatTime(_ seconds: Double) -> String {
+        let minutes = Int(seconds) / 60
+        if minutes == 0 { return "< 1 min" }
+        return "\(minutes) min"
     }
     
     private func calculateStats() {
         let todayStr = DateFormatter.yyyyMMdd.string(from: Date())
-        
-        // Optymalizacja: POBRANIE SAMEJ LICZBY (zamiast ściągania całej bazy do pamięci)
         let poznaneDescriptor = FetchDescriptor<Flashcard>(predicate: #Predicate { $0.repetitions > 0 })
         poznaneCount = (try? modelContext.fetchCount(poznaneDescriptor)) ?? 0
         
-        let todayDescriptor = FetchDescriptor<DailyActivity>(predicate: #Predicate { $0.dateString == todayStr })
-        todayCount = (try? modelContext.fetch(todayDescriptor))?.first?.count ?? 0
-        
         let allActDescriptor = FetchDescriptor<DailyActivity>()
         if let allActivities = try? modelContext.fetch(allActDescriptor) {
-            let calendar = Calendar.current
             let activityDict = Dictionary(uniqueKeysWithValues: allActivities.map { ($0.dateString, $0) })
+            
+            todayCount = activityDict[todayStr]?.count ?? 0
+            todayStudyTime = activityDict[todayStr]?.studyTime ?? 0.0
             
             var currentStreak = 0
             var checkDate = Date()
+            let calendar = Calendar.current
             
             if (activityDict[todayStr]?.count ?? 0) >= dailyGoal {
                 currentStreak += 1

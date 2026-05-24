@@ -5,14 +5,17 @@ struct FlashcardView: View {
     @Binding var isFlipped: Bool
 
     @AppStorage("showPolishOnFront") private var showPolishOnFront: Bool = true
+    @Environment(SpeechManager.self) private var speechManager
     
     var body: some View {
         ZStack {
             Group {
                 if showPolishOnFront {
-                    CardFace(text: card.back, subtitle: "Polski", example: card.example)
+                    CardFace(text: card.back, subtitle: "Polski", example: card.example, isItalian: false)
                 } else {
-                    CardFace(text: card.front, subtitle: "Włoski")
+                    CardFace(text: card.front, subtitle: "Włoski", isItalian: true, actionSpeech: {
+                        speechManager.speak(card.front)
+                    })
                 }
             }
             .opacity(isFlipped ? 0 : 1)
@@ -20,9 +23,11 @@ struct FlashcardView: View {
             
             Group {
                 if showPolishOnFront {
-                    CardFace(text: card.front, subtitle: "Włoski")
+                    CardFace(text: card.front, subtitle: "Włoski", isItalian: true, actionSpeech: {
+                        speechManager.speak(card.front)
+                    })
                 } else {
-                    CardFace(text: card.back, subtitle: "Polski", example: card.example)
+                    CardFace(text: card.back, subtitle: "Polski", example: card.example, isItalian: false)
                 }
             }
             .opacity(isFlipped ? 1 : 0)
@@ -36,6 +41,8 @@ struct CardFace: View {
     var text: String
     var subtitle: String
     var example: String? = nil
+    var isItalian: Bool
+    var actionSpeech: (() -> Void)? = nil
     
     var body: some View {
         VStack {
@@ -47,11 +54,26 @@ struct CardFace: View {
             
             Spacer()
             
-            Text(text)
-                .font(.system(size: 40, weight: .bold, design: .rounded))
-                .multilineTextAlignment(.center)
-                .minimumScaleFactor(0.5)
-                .padding(.horizontal)
+            HStack(alignment: .center, spacing: 10) {
+                Text(text)
+                    .font(.system(size: 40, weight: .bold, design: .rounded))
+                    .multilineTextAlignment(.center)
+                    .minimumScaleFactor(0.5)
+                
+                // Pokaż przycisk głośnika tylko dla strony włoskiej
+                if isItalian {
+                    Button(action: {
+                        actionSpeech?()
+                    }) {
+                        Image(systemName: "speaker.wave.2.circle.fill")
+                            .font(.system(size: 32))
+                            .foregroundColor(.blue.opacity(0.8))
+                    }
+                    // Zapobiega odwróceniu karty przy kliknięciu w głośnik
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal)
             
             if let example = example, !example.isEmpty {
                 Text(example)

@@ -1,15 +1,23 @@
 import SwiftUI
 import SwiftData
+import Combine
 
 struct TypingStudySessionView: View {
     @Environment(\.dismiss) var dismiss
     @Environment(\.modelContext) private var modelContext
 
-    @State var cards: [Flashcard]
+    // 1. Zmienione na 'let' oraz dodana zmienna isFreePractice
+    let cards: [Flashcard]
+    var isFreePractice: Bool = false
+    
     @State private var currentIndex = 0
     @State private var userAnswer = ""
     @State private var showFeedback = false
     @State private var wasCorrect = false
+
+    // 2. Dodany licznik czasu nauki
+    @State private var sessionTime: Double = 0
+    let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var progress: Double {
         guard !cards.isEmpty else { return 1.0 }
@@ -54,11 +62,29 @@ struct TypingStudySessionView: View {
                         }
 
                         HStack(spacing: 12) {
-                            Button("Pomiń") { submit(answerIsCorrect: false) }
-                                .buttonStyle(.bordered)
-                            Button("Sprawdź") { checkAnswer() }
-                                .buttonStyle(.borderedProminent)
-                                .tint(.primary)
+                            Button(action: { submit(answerIsCorrect: false) }) {
+                                Text("Pomiń")
+                                    .fontWeight(.medium)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                    .background(Color.secondary.opacity(0.15))
+                                    .foregroundColor(.primary)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(showFeedback)
+                            
+                            Button(action: { checkAnswer() }) {
+                                Text("Sprawdź")
+                                    .fontWeight(.bold)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                    .background(Color.primary)
+                                    .foregroundColor(.white)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(showFeedback || userAnswer.trimmingCharacters(in: .whitespaces).isEmpty)
                         }
                     }
                     .padding(.horizontal, 24)
@@ -69,12 +95,20 @@ struct TypingStudySessionView: View {
                         Image(systemName: "party.popper.fill")
                             .font(.system(size: 60))
                             .foregroundColor(.accentColor)
-                        Text("Koniec na dzisiaj!")
+                        Text(isFreePractice ? "Koniec treningu!" : "Koniec na dzisiaj!")
                             .font(.title)
                             .bold()
-                        Button("Zakończ") { dismiss() }
-                            .buttonStyle(.borderedProminent)
-                            .tint(.primary)
+                        
+                        Button(action: { dismiss() }) {
+                            Text("Zakończ")
+                                .font(.headline)
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 32)
+                                .padding(.vertical, 14)
+                                .background(Color.primary)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        .buttonStyle(.plain)
                     }
                     Spacer()
                 }
@@ -90,6 +124,7 @@ struct TypingStudySessionView: View {
                             .foregroundColor(.secondary)
                             .font(.title3)
                     }
+                    .buttonStyle(.plain)
                 }
                 ToolbarItem(placement: .principal) {
                     Text("\(currentIndex) / \(cards.count)")
@@ -97,6 +132,14 @@ struct TypingStudySessionView: View {
                         .fontWeight(.medium)
                         .foregroundColor(.secondary)
                 }
+            }
+            .onReceive(timer) { _ in
+                if currentIndex < cards.count { // naliczaj czas tylko w trakcie pytań
+                    sessionTime += 1
+                }
+            }
+            .onDisappear {
+                saveStudyTime() // Zapisuje czas do bazy po zamknięciu okna
             }
         }
     }
@@ -113,29 +156,52 @@ struct TypingStudySessionView: View {
         showFeedback = true
         wasCorrect = answerIsCorrect
 
-        let card = cards[currentIndex]
-        let quality: ReviewQuality = answerIsCorrect ? .good : .again
-        SRSAlgorithm.processReview(for: card, quality: quality)
+        // Jeśli to wolny trening, w ogóle nie modyfikujemy statystyk ani systemu SRS
+        if !isFreePractice {
+            let card = cards[currentIndex]
+            let quality: ReviewQuality = answerIsCorrect ? .good : .again
+            SRSAlgorithm.processReview(for: card, quality: quality)
 
-        // Zoptymalizowane użycie statycznego formatera daty
-        let todayStr = DateFormatter.yyyyMMdd.string(from: Date())
-        let descriptor = FetchDescriptor<DailyActivity>()
-        if let activities = try? modelContext.fetch(descriptor) {
-            if let todayActivity = activities.first(where: { $0.dateString == todayStr }) {
-                todayActivity.count += 1
-            } else {
-                let newActivity = DailyActivity(dateString: todayStr, count: 1)
-                modelContext.insert(newActivity)
+            // Zaliczenie do statystyk (np. do paska celu) TYLKO przy poprawnej odpowiedzi
+            if answerIsCorrect {
+                let todayStr = DateFormatter.yyyyMMdd.string(from: Date())
+                let descriptor = FetchDescriptor<DailyActivity>()
+                if let activities = try? modelContext.fetch(descriptor) {
+                    if let todayActivity = activities.first(where: { $0.dateString == todayStr }) {
+                        todayActivity.count += 1
+                    } else {
+                        let newActivity = DailyActivity(dateString: todayStr, count: 1)
+                        modelContext.insert(newActivity)
+                    }
+                }
             }
+            
+            try? modelContext.save()
         }
-        try? modelContext.save()
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+        // Czekamy chwilę dłużej, byś mógł przeczytać poprawną odpowiedź (zwłaszcza jeśli wcisnąłeś 'Pomiń')
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
             withAnimation(.easeInOut(duration: 0.3)) {
                 currentIndex += 1
                 userAnswer = ""
                 showFeedback = false
             }
+        }
+    }
+    
+    // Funkcja zapisująca zebrany czas do bazy w statystykach
+    private func saveStudyTime() {
+        guard sessionTime > 0 else { return }
+        let todayStr = DateFormatter.yyyyMMdd.string(from: Date())
+        let descriptor = FetchDescriptor<DailyActivity>()
+        if let activities = try? modelContext.fetch(descriptor) {
+            if let todayActivity = activities.first(where: { $0.dateString == todayStr }) {
+                todayActivity.studyTime += sessionTime
+            } else {
+                let newActivity = DailyActivity(dateString: todayStr, count: 0, studyTime: sessionTime)
+                modelContext.insert(newActivity)
+            }
+            try? modelContext.save()
         }
     }
 }

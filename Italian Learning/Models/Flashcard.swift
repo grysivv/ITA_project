@@ -7,6 +7,7 @@ final class Flashcard {
     var back: String
     var example: String?
     var notes: String?
+    var category: String? 
 
     var repetitions: Int = 0
     var interval: Int = 0
@@ -15,10 +16,11 @@ final class Flashcard {
 
     var creationDate: Date = Date()
 
-    init(front: String, back: String, example: String? = nil, notes: String? = nil) {
+    init(front: String, back: String, example: String? = nil, notes: String? = nil, category: String? = nil) {
         self.front = front
         self.back = back
         self.example = example
         self.notes = notes
+        self.category = category
     }
 }

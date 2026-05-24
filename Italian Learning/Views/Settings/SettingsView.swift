@@ -7,69 +7,120 @@ struct SettingsView: View {
     @AppStorage("dailyGoal") private var dailyGoal: Int = 15
     @AppStorage("showPolishOnFront") private var showPolishOnFront: Bool = true
     
+    @Query private var allCards: [Flashcard]
+    
     @State private var isImportingCSV = false
+    @State private var isExportingCSV = false
+    @State private var csvDocument: CSVDocument?
+    
     @State private var showCSVTemplate = false
-    @State private var csvTemplateText: String = "front,back,example,notes\nla mela,jabłko,La mela è rossa.,\nciao,cześć,,\n"
+    @State private var csvTemplateText: String = "front,back,example,notes,category\nla mela,jabłko,La mela è rossa.,,Jedzenie\nciao,cześć,,,\n"
     
     @State private var showDeleteAllAlert = false
     @State private var showDeleteActivitiesAlert = false
-    @State private var isProcessingCSV = false // Wskaźnik ładowania zoptymalizowanego
+    @State private var showResetProgressAlert = false // Nowy alert!
+    @State private var isProcessingCSV = false
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section(header: Text("Cel dzienny")) {
-                    Stepper(value: $dailyGoal, in: 1...200) {
-                        HStack {
-                            Text("Ustaw cel dzienny")
-                            Spacer()
-                            Text("\(dailyGoal) słówek")
-                                .foregroundColor(.secondary)
-                        }
+            List {
+                Section(header: Text("Nauka").font(.caption).bold()) {
+                    HStack {
+                        Label("Cel dzienny", systemImage: "target")
+                        Spacer()
+                        Text("\(dailyGoal) słówek")
+                            .foregroundColor(.secondary)
+                        Stepper("", value: $dailyGoal, in: 1...200)
+                            .labelsHidden()
+                    }
+                    
+                    Toggle(isOn: $showPolishOnFront) {
+                        Label("Przód karty: Polski", systemImage: "character.book.closed")
                     }
                 }
                 
-                Section(header: Text("Wygląd fiszek")) {
-                    Toggle(isOn: $showPolishOnFront) {
-                        Text("Przód karty: Polski")
-                    }
-                }
-
-                Section(header: Text("Import CSV"), footer: Text("Format: front,back,example,notes")) {
-                    Button { showCSVTemplate = true } label: {
+                Section(header: Text("Import i Eksport").font(.caption).bold(), footer: Text("Format pliku: front,back,example,notes,category")) {
+                    Button {
+                        showCSVTemplate = true
+                    } label: {
                         Label("Pokaż szablon CSV", systemImage: "doc.text")
                     }
+                    .buttonStyle(.borderless)
                     
                     if isProcessingCSV {
                         HStack {
                             ProgressView()
+                                .controlSize(.small)
                                 .padding(.trailing, 8)
-                            Text("Importowanie danych...")
+                            Text("Przetwarzanie danych...")
+                                .foregroundColor(.secondary)
                         }
                     } else {
-                        Button { isImportingCSV = true } label: {
-                            Label("Importuj CSV", systemImage: "square.and.arrow.down")
+                        Button {
+                            isImportingCSV = true
+                        } label: {
+                            Label("Importuj z pliku CSV", systemImage: "square.and.arrow.down")
                         }
+                        .buttonStyle(.borderless)
+                        
+                        Button {
+                            exportCSV()
+                        } label: {
+                            Label("Eksportuj do pliku CSV", systemImage: "square.and.arrow.up")
+                        }
+                        .buttonStyle(.borderless)
                     }
                 }
 
-                Section(header: Text("Baza danych")) {
-                    Button(role: .destructive) { showDeleteAllAlert = true } label: {
-                        Label("Usuń wszystkie fiszki", systemImage: "trash.fill")
+                Section(header: Text("Zarządzanie bazą").font(.caption).bold(), footer: Text("Liczba fiszek w kolekcji: \(allCards.count)")) {
+                    Button(role: .destructive) {
+                        showResetProgressAlert = true
+                    } label: {
+                        Label("Zresetuj algorytm i naukę", systemImage: "arrow.counterclockwise")
+                            .foregroundColor(.orange)
                     }
-                    Button(role: .destructive) { showDeleteActivitiesAlert = true } label: {
+                    .buttonStyle(.borderless)
+                    
+                    Button(role: .destructive) {
+                        showDeleteAllAlert = true
+                    } label: {
+                        Label("Usuń wszystkie fiszki", systemImage: "trash")
+                            .foregroundColor(.red)
+                    }
+                    .buttonStyle(.borderless)
+                    
+                    Button(role: .destructive) {
+                        showDeleteActivitiesAlert = true
+                    } label: {
                         Label("Wyczyść historię aktywności", systemImage: "calendar.badge.exclamationmark")
+                            .foregroundColor(.red)
                     }
+                    .buttonStyle(.borderless)
                 }
             }
+#if os(iOS)
+            .listStyle(.insetGrouped)
+#else
+            .listStyle(.inset)
+#endif
             .navigationTitle("Ustawienia")
+            .alert("Zresetować naukę?", isPresented: $showResetProgressAlert) {
+                Button("Anuluj", role: .cancel) {}
+                Button("Zresetuj", role: .destructive) { resetAllProgress() }
+            } message: {
+                Text("Wszystkie statystyki zapamiętywania wrócą do początku dla każdej fiszki w bazie.")
+            }
             .alert("Usunąć wszystkie fiszki?", isPresented: $showDeleteAllAlert) {
                 Button("Anuluj", role: .cancel) {}
                 Button("Usuń", role: .destructive) { deleteAllFlashcards() }
+            } message: {
+                Text("Tej operacji nie można cofnąć. Wszystkie słówka zostaną permanentnie usunięte z pamięci aplikacji.")
             }
             .alert("Wyczyścić historię?", isPresented: $showDeleteActivitiesAlert) {
                 Button("Anuluj", role: .cancel) {}
                 Button("Wyczyść", role: .destructive) { deleteAllActivities() }
+            } message: {
+                Text("Twoje codzienne postępy oraz statystyki sesji zostaną trwale wyzerowane.")
             }
             .fileImporter(isPresented: $isImportingCSV, allowedContentTypes: [.commaSeparatedText]) { result in
                 switch result {
@@ -77,20 +128,45 @@ struct SettingsView: View {
                 case .failure: break
                 }
             }
+            .fileExporter(isPresented: $isExportingCSV, document: csvDocument, contentType: .commaSeparatedText, defaultFilename: "MojeFiszki") { _ in }
             .sheet(isPresented: $showCSVTemplate) {
                 NavigationStack {
-                    ScrollView { Text(csvTemplateText).monospaced().padding() }
-                        .navigationTitle("Szablon CSV")
-                        .toolbar {
-                            ToolbarItem(placement: .primaryAction) {
-                                Button("Zamknij") { showCSVTemplate = false }
-                            }
+                    ScrollView {
+                        Text(csvTemplateText)
+                            .monospaced()
+                            .padding()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .navigationTitle("Szablon CSV")
+#if os(macOS)
+                    .frame(minWidth: 400, minHeight: 250)
+#else
+                    .navigationBarTitleDisplayMode(.inline)
+#endif
+                    .toolbar {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button("Zamknij") { showCSVTemplate = false }
                         }
+                    }
                 }
+#if os(iOS)
+                .presentationDetents([.medium, .large])
+#endif
             }
         }
     }
 
+    private func resetAllProgress() {
+        for card in allCards {
+            card.repetitions = 0
+            card.interval = 0
+            card.easeFactor = 2.5
+            card.nextReviewDate = Date()
+        }
+        try? modelContext.save()
+    }
+
+    // Pozostałe metody bez zmian:
     private func deleteAllFlashcards() {
         let descriptor = FetchDescriptor<Flashcard>()
         if let cards = try? modelContext.fetch(descriptor) {
@@ -107,26 +183,37 @@ struct SettingsView: View {
         }
     }
 
+    private func exportCSV() {
+        var csvString = "front,back,example,notes,category\n"
+        for card in allCards {
+            let f = card.front.replacingOccurrences(of: ",", with: " ")
+            let b = card.back.replacingOccurrences(of: ",", with: " ")
+            let e = card.example?.replacingOccurrences(of: ",", with: " ") ?? ""
+            let n = card.notes?.replacingOccurrences(of: ",", with: " ") ?? ""
+            let c = card.category?.replacingOccurrences(of: ",", with: " ") ?? ""
+            
+            csvString += "\(f),\(b),\(e),\(n),\(c)\n"
+        }
+        csvDocument = CSVDocument(text: csvString)
+        isExportingCSV = true
+    }
+
     private func importCSV(from url: URL) {
         isProcessingCSV = true
-        
-        // Optymalizacja: Uruchomienie parsowania tekstów w tle, żeby nie mrozić aplikacji
         Task {
             guard let data = try? Data(contentsOf: url),
                   var content = String(data: data, encoding: .utf8) else {
                 await MainActor.run { isProcessingCSV = false }
                 return
             }
-            
             content = content.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
             let lines = content.split(separator: "\n", omittingEmptySubsequences: true)
             guard lines.count > 1 else {
                 await MainActor.run { isProcessingCSV = false }
                 return
             }
-            
             let rows = lines.dropFirst()
-            var parsedCards: [(String, String, String?, String?)] = []
+            var parsedCards: [(String, String, String?, String?, String?)] = []
             
             for row in rows {
                 let cols = row.split(separator: ",", omittingEmptySubsequences: false)
@@ -135,24 +222,23 @@ struct SettingsView: View {
                     let back = String(cols[1]).trimmingCharacters(in: .whitespacesAndNewlines)
                     let example = cols.count > 2 ? String(cols[2]).trimmingCharacters(in: .whitespacesAndNewlines) : nil
                     let notes = cols.count > 3 ? String(cols[3]).trimmingCharacters(in: .whitespacesAndNewlines) : nil
+                    let category = cols.count > 4 ? String(cols[4]).trimmingCharacters(in: .whitespacesAndNewlines) : nil
                     
                     if !front.isEmpty && !back.isEmpty {
-                        parsedCards.append((front, back, example?.isEmpty == true ? nil : example, notes?.isEmpty == true ? nil : notes))
+                        parsedCards.append((front, back, example?.isEmpty == true ? nil : example, notes?.isEmpty == true ? nil : notes, category?.isEmpty == true ? nil : category))
                     }
                 }
             }
             
-            // Bezpieczny powrót na główny wątek, by dokonać wstawienia do bazy (ModelContext nie jest współbieżny)
             await MainActor.run {
                 let descriptor = FetchDescriptor<Flashcard>()
                 let existing = (try? modelContext.fetch(descriptor)) ?? []
                 var existingSet = Set(existing.map { "\($0.front.lowercased())|\($0.back.lowercased())" })
-                
                 var inserted = 0
-                for (front, back, example, notes) in parsedCards {
+                for (front, back, example, notes, category) in parsedCards {
                     let key = "\(front.lowercased())|\(back.lowercased())"
                     if !existingSet.contains(key) {
-                        let card = Flashcard(front: front, back: back, example: example, notes: notes)
+                        let card = Flashcard(front: front, back: back, example: example, notes: notes, category: category)
                         modelContext.insert(card)
                         existingSet.insert(key)
                         inserted += 1
