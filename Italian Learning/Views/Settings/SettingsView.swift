@@ -14,11 +14,11 @@ struct SettingsView: View {
     @State private var csvDocument: CSVDocument?
     
     @State private var showCSVTemplate = false
-    @State private var csvTemplateText: String = "front,back,example,notes,category\nla mela,jabłko,La mela è rossa.,,Jedzenie\nciao,cześć,,,\n"
+    @State private var csvTemplateText: String = "front,back,example,category\nla mela,jabłko,La mela è rossa.,Jedzenie\nciao,cześć,,\n"
     
     @State private var showDeleteAllAlert = false
     @State private var showDeleteActivitiesAlert = false
-    @State private var showResetProgressAlert = false // Nowy alert!
+    @State private var showResetProgressAlert = false
     @State private var isProcessingCSV = false
 
     var body: some View {
@@ -39,7 +39,7 @@ struct SettingsView: View {
                     }
                 }
                 
-                Section(header: Text("Import i Eksport").font(.caption).bold(), footer: Text("Format pliku: front,back,example,notes,category")) {
+                Section(header: Text("Import i Eksport").font(.caption).bold(), footer: Text("Format pliku: front,back,example,category")) {
                     Button {
                         showCSVTemplate = true
                     } label: {
@@ -166,7 +166,6 @@ struct SettingsView: View {
         try? modelContext.save()
     }
 
-    // Pozostałe metody bez zmian:
     private func deleteAllFlashcards() {
         let descriptor = FetchDescriptor<Flashcard>()
         if let cards = try? modelContext.fetch(descriptor) {
@@ -184,15 +183,14 @@ struct SettingsView: View {
     }
 
     private func exportCSV() {
-        var csvString = "front,back,example,notes,category\n"
+        var csvString = "front,back,example,category\n"
         for card in allCards {
             let f = card.front.replacingOccurrences(of: ",", with: " ")
             let b = card.back.replacingOccurrences(of: ",", with: " ")
             let e = card.example?.replacingOccurrences(of: ",", with: " ") ?? ""
-            let n = card.notes?.replacingOccurrences(of: ",", with: " ") ?? ""
             let c = card.category?.replacingOccurrences(of: ",", with: " ") ?? ""
             
-            csvString += "\(f),\(b),\(e),\(n),\(c)\n"
+            csvString += "\(f),\(b),\(e),\(c)\n"
         }
         csvDocument = CSVDocument(text: csvString)
         isExportingCSV = true
@@ -213,7 +211,7 @@ struct SettingsView: View {
                 return
             }
             let rows = lines.dropFirst()
-            var parsedCards: [(String, String, String?, String?, String?)] = []
+            var parsedCards: [(String, String, String?, String?)] = []
             
             for row in rows {
                 let cols = row.split(separator: ",", omittingEmptySubsequences: false)
@@ -221,11 +219,10 @@ struct SettingsView: View {
                     let front = String(cols[0]).trimmingCharacters(in: .whitespacesAndNewlines)
                     let back = String(cols[1]).trimmingCharacters(in: .whitespacesAndNewlines)
                     let example = cols.count > 2 ? String(cols[2]).trimmingCharacters(in: .whitespacesAndNewlines) : nil
-                    let notes = cols.count > 3 ? String(cols[3]).trimmingCharacters(in: .whitespacesAndNewlines) : nil
-                    let category = cols.count > 4 ? String(cols[4]).trimmingCharacters(in: .whitespacesAndNewlines) : nil
+                    let category = cols.count > 3 ? String(cols[3]).trimmingCharacters(in: .whitespacesAndNewlines) : nil
                     
                     if !front.isEmpty && !back.isEmpty {
-                        parsedCards.append((front, back, example?.isEmpty == true ? nil : example, notes?.isEmpty == true ? nil : notes, category?.isEmpty == true ? nil : category))
+                        parsedCards.append((front, back, example?.isEmpty == true ? nil : example, category?.isEmpty == true ? nil : category))
                     }
                 }
             }
@@ -235,10 +232,10 @@ struct SettingsView: View {
                 let existing = (try? modelContext.fetch(descriptor)) ?? []
                 var existingSet = Set(existing.map { "\($0.front.lowercased())|\($0.back.lowercased())" })
                 var inserted = 0
-                for (front, back, example, notes, category) in parsedCards {
+                for (front, back, example, category) in parsedCards {
                     let key = "\(front.lowercased())|\(back.lowercased())"
                     if !existingSet.contains(key) {
-                        let card = Flashcard(front: front, back: back, example: example, notes: notes, category: category)
+                        let card = Flashcard(front: front, back: back, example: example, category: category)
                         modelContext.insert(card)
                         existingSet.insert(key)
                         inserted += 1
