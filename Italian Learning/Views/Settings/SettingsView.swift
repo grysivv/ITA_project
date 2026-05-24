@@ -198,6 +198,7 @@ struct SettingsView: View {
 
     private func importCSV(from url: URL) {
         isProcessingCSV = true
+        
         Task {
             guard let data = try? Data(contentsOf: url),
                   var content = String(data: data, encoding: .utf8) else {

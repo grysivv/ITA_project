@@ -159,6 +159,7 @@ struct DashboardView: View {
     
     private func calculateStats() {
         let todayStr = DateFormatter.yyyyMMdd.string(from: Date())
+        
         let poznaneDescriptor = FetchDescriptor<Flashcard>(predicate: #Predicate { $0.repetitions > 0 })
         poznaneCount = (try? modelContext.fetchCount(poznaneDescriptor)) ?? 0
         
